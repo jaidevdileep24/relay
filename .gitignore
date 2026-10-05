@@ -1,0 +1,9 @@
+target/
+!.mvn/wrapper/maven-wrapper.jar
+.idea/
+*.iml
+*.log
+.env
+
+# personal AI-assistant notes, not part of the project
+CLAUDE.md

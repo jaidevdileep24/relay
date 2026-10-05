@@ -1,0 +1,585 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Relay Console</title>
+<!--
+  Relay dashboard. A plain client of the public REST API - it never talks to the
+  database, so everything it shows is exactly what an API consumer would see.
+  Served by Spring from static/, so same origin as the API: no CORS needed.
+-->
+<style>
+:root{
+  --bg:#F3F5F7; --panel:#FFFFFF; --ink:#17202A; --muted:#5B6878; --line:#DCE2E8; --hover:#F0F4F7;
+  --accent:#0B6E78; --accent-ink:#FFFFFF; --accent-soft:#DFF0F1;
+  --ok:#2D7A3E; --ok-soft:#E2F2E5; --warn:#94600F; --warn-soft:#FBEFD9;
+  --bad:#A93535; --bad-soft:#F8E3E3; --off:#5B6878; --off-soft:#E8ECF0;
+  --mono:ui-monospace,"JetBrains Mono","SFMono-Regular",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,Ubuntu,sans-serif;
+}
+@media (prefers-color-scheme:dark){:root{
+  color-scheme:dark;
+  --bg:#0E141A; --panel:#151D25; --ink:#E3E9EF; --muted:#93A1B1; --line:#27323D; --hover:#1B2530;
+  --accent:#4FC1CB; --accent-ink:#0E141A; --accent-soft:#12343A;
+  --ok:#7BCB8B; --ok-soft:#17331E; --warn:#E0A955; --warn-soft:#3A2C14;
+  --bad:#EE8080; --bad-soft:#3D1D1D; --off:#93A1B1; --off-soft:#222C36;
+}}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 var(--sans)}
+button,input,select,textarea{font:inherit;color:inherit}
+.app{display:grid;grid-template-columns:260px 1fr;min-height:100%}
+@media (max-width:860px){.app{grid-template-columns:1fr}}
+
+/* sidebar */
+aside{background:var(--panel);border-right:1px solid var(--line);padding:16px;display:flex;flex-direction:column;gap:14px}
+.brand{display:flex;align-items:baseline;gap:8px}
+.brand b{font-size:18px;letter-spacing:.02em}
+.brand span{font-family:var(--mono);font-size:11px;color:var(--muted)}
+.label{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600}
+.apps{display:flex;flex-direction:column;gap:2px;overflow:auto}
+.apps button{all:unset;cursor:pointer;padding:8px 10px;border-radius:6px;display:flex;flex-direction:column}
+.apps button:hover{background:var(--hover)}
+.apps button[aria-current="true"]{background:var(--accent-soft)}
+.apps button small{font-family:var(--mono);font-size:11px;color:var(--muted)}
+.links{margin-top:auto;display:flex;flex-direction:column;gap:6px;font-size:13px}
+.links a{color:var(--accent);text-decoration:none}
+.links a:hover{text-decoration:underline}
+
+main{padding:20px;display:flex;flex-direction:column;gap:18px;min-width:0}
+.head{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.head h1{margin:0;font-size:20px}
+.head code{font-family:var(--mono);font-size:12px;color:var(--muted)}
+.grid2{display:grid;grid-template-columns:1.3fr 1fr;gap:18px}
+@media (max-width:1100px){.grid2{grid-template-columns:1fr}}
+section.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;min-width:0}
+section.panel h2{margin:0 0 12px;font-size:15px;display:flex;align-items:center;gap:8px}
+section.panel h2 .count{font-family:var(--mono);font-size:12px;color:var(--muted);font-weight:400}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+input,select,textarea{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:7px 9px;min-width:0}
+textarea{font-family:var(--mono);font-size:12.5px;width:100%;resize:vertical}
+input:focus,select:focus,textarea:focus,button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.btn{border:1px solid var(--line);background:var(--panel);border-radius:6px;padding:6px 12px;cursor:pointer}
+.btn:hover{background:var(--hover)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
+.btn.small{padding:2px 9px;font-size:12px}
+.btn:disabled{opacity:.5;cursor:default}
+.field{display:flex;flex-direction:column;gap:4px;flex:1}
+.field span{font-size:12px;color:var(--muted)}
+
+.pill{display:inline-block;font-family:var(--mono);font-size:11px;padding:1px 8px;border-radius:99px;white-space:nowrap;font-weight:500}
+.s-PENDING{background:var(--accent-soft);color:var(--accent)}
+.s-SUCCEEDED{background:var(--ok-soft);color:var(--ok)}
+.s-FAILED{background:var(--bad-soft);color:var(--bad)}
+.s-DISABLED{background:var(--warn-soft);color:var(--warn)}
+.s-off{background:var(--off-soft);color:var(--off)}
+
+.eps{display:flex;flex-direction:column;gap:8px}
+.ep{border:1px solid var(--line);border-radius:8px;padding:10px 12px;display:grid;grid-template-columns:1fr auto;gap:4px 10px}
+.ep .url{font-family:var(--mono);font-size:12.5px;word-break:break-all}
+.ep .meta{font-size:12px;color:var(--muted);grid-column:1/-1;display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.ep .actions{display:flex;gap:6px;align-items:start}
+.ep.disabled{border-color:var(--warn);background:var(--warn-soft)}
+
+.tbl{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th{text-align:left;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+td.mono{font-family:var(--mono);font-size:12px}
+tbody tr{cursor:pointer}
+tbody tr:hover{background:var(--hover)}
+tbody tr[aria-selected="true"]{background:var(--accent-soft)}
+.empty{color:var(--muted);padding:18px 8px;text-align:center}
+.live{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);cursor:pointer;user-select:none}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--muted)}
+.live.on .dot{background:var(--ok);animation:pulse 1.6s infinite}
+@keyframes pulse{50%{opacity:.35}}
+@media (prefers-reduced-motion:reduce){.live.on .dot{animation:none}}
+
+/* attempts timeline */
+.timeline{display:flex;flex-direction:column}
+.att{display:grid;grid-template-columns:28px 1fr;gap:10px}
+.att .rail{display:flex;flex-direction:column;align-items:center}
+.att .node{width:12px;height:12px;border-radius:50%;margin-top:5px;border:2px solid var(--panel)}
+.att .line{flex:1;width:2px;background:var(--line)}
+.att .body{padding-bottom:12px;min-width:0}
+.att .top{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.att .gap{font-family:var(--mono);font-size:11px;color:var(--muted);padding:2px 0 8px 38px}
+.att pre{margin:6px 0 0;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:8px;font-size:11.5px;max-height:160px;overflow:auto;white-space:pre-wrap;word-break:break-all}
+.n-ok{background:var(--ok)} .n-bad{background:var(--bad)} .n-warn{background:var(--warn)}
+/* failure triage */
+.tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+@media (max-width:900px){.tiles{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.tile{border:1px solid var(--line);border-radius:8px;padding:10px 12px}
+.tile .v{font-size:26px;font-weight:650;font-variant-numeric:tabular-nums;line-height:1.2}
+.tile .k{font-size:12px;color:var(--muted)}
+.tile.hero{border-color:var(--ok);background:var(--ok-soft)}
+.tile.hero .v{color:var(--ok)}
+.cats{display:flex;flex-direction:column;gap:6px;margin-top:14px}
+.cat{display:grid;grid-template-columns:120px 1fr 48px;gap:10px;align-items:center;font-size:12px}
+.cat .track{height:8px;background:var(--bg);border-radius:99px;overflow:hidden}
+.cat .fill{height:100%;background:var(--accent);border-radius:99px}
+.cat .fill.perm{background:var(--bad)}
+.cat .n{font-family:var(--mono);text-align:right;color:var(--muted)}
+.diag{display:flex;flex-direction:column;gap:2px;min-width:180px}
+.diag .r{font-size:12px;color:var(--ink)}
+.diag .e{font-family:var(--mono);font-size:11px;color:var(--muted)}
+.pill.c-perm{background:var(--bad-soft);color:var(--bad)}
+.pill.c-temp{background:var(--warn-soft);color:var(--warn)}
+.pill.saved{background:var(--ok-soft);color:var(--ok)}
+.why{font-size:12px;color:var(--muted)}
+
+#toast{position:fixed;right:16px;bottom:16px;display:flex;flex-direction:column;gap:8px;z-index:10;max-width:min(420px,calc(100% - 32px))}
+.toast{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:8px;padding:10px 14px;box-shadow:0 6px 24px rgba(0,0,0,.15);font-size:13px}
+.toast.err{border-left-color:var(--bad)}
+.toast code{font-family:var(--mono);font-size:12px}
+.hint{font-size:12px;color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <div class="brand"><b>Relay</b><span>console</span></div>
+    <div id="aiBadge" class="hint" title="Which failure classifier the dispatcher is using. Set relay.ai.provider to none, ollama or claude."></div>
+
+    <form id="appForm" class="row" autocomplete="off">
+      <input id="appName" placeholder="New application name" required maxlength="200" style="flex:1">
+      <button class="btn primary" type="submit">Add</button>
+    </form>
+
+    <div class="label">Applications</div>
+    <div class="apps" id="apps"></div>
+
+    <div class="links">
+      <a href="/swagger-ui.html" target="_blank">Swagger UI (all endpoints)</a>
+      <a href="/actuator/health" target="_blank">Health</a>
+      <a href="/actuator/prometheus" target="_blank">Prometheus metrics</a>
+    </div>
+  </aside>
+
+  <main id="main">
+    <div class="empty" id="noApp">Create or select an application to begin.</div>
+
+    <div id="workspace" hidden>
+      <div class="head">
+        <h1 id="appTitle"></h1>
+        <code id="appId"></code>
+      </div>
+
+      <div class="grid2" style="margin-top:18px">
+        <!-- endpoints -->
+        <section class="panel">
+          <h2>Endpoints <span class="count" id="epCount"></span></h2>
+          <form id="epForm" class="row" autocomplete="off" style="margin-bottom:12px">
+            <input id="epUrl" placeholder="https://httpbin.org/post" required style="flex:2;min-width:200px">
+            <input id="epTypes" placeholder="order.created, user.signup" style="flex:1;min-width:140px" title="Comma-separated event types. Empty = all events.">
+            <input id="epDesc" placeholder="description" style="flex:1;min-width:100px">
+            <button class="btn primary" type="submit">Add endpoint</button>
+          </form>
+          <div class="row hint" style="margin:-4px 0 12px">
+            Quick fill:
+            <button class="btn small" type="button" data-fill="https://httpbin.org/post|healthy">200 healthy</button>
+            <button class="btn small" type="button" data-fill="https://httpbin.org/status/500|broken">500 broken</button>
+            <button class="btn small" type="button" data-fill="https://httpbin.org/status/401|bad-auth">401 bad auth</button>
+            <button class="btn small" type="button" data-fill="https://api.github.com/user|ai-demo (401 + body)" title="Returns an error WITH a text body, so the AI model has something to read">401 + body (AI)</button>
+            <button class="btn small" type="button" data-fill="https://169.254.169.254/latest/meta-data|ssrf-attack">SSRF attack</button>
+          </div>
+          <div class="eps" id="eps"></div>
+        </section>
+
+        <!-- send -->
+        <section class="panel">
+          <h2>Send event</h2>
+          <form id="msgForm" autocomplete="off" style="display:flex;flex-direction:column;gap:10px">
+            <div class="row">
+              <label class="field"><span>Event type</span><input id="msgType" value="order.created" required></label>
+              <label class="field"><span>Idempotency-Key (optional)</span><input id="msgKey" placeholder="order-202"></label>
+            </div>
+            <label class="field"><span>Payload (JSON)</span>
+              <textarea id="msgPayload" rows="5">{"orderId": 101, "amount": 499}</textarea></label>
+            <div class="row">
+              <button class="btn primary" type="submit">Send</button>
+              <label class="row hint" style="gap:6px">×<input id="msgTimes" type="number" min="1" max="50" value="1" style="width:64px"> times</label>
+            </div>
+            <div class="hint" id="msgResult"></div>
+          </form>
+        </section>
+      </div>
+
+      <!-- failure triage -->
+      <section class="panel" style="margin-top:18px" id="triage">
+        <h2>Failure triage <span class="count" id="triageProvider"></span></h2>
+        <div class="tiles">
+          <div class="tile"><div class="v" id="tDiagnosed">0</div><div class="k">failed attempts diagnosed</div></div>
+          <div class="tile"><div class="v" id="tStopped">0</div><div class="k">deliveries stopped early (permanent failure)</div></div>
+          <div class="tile hero"><div class="v" id="tSaved">0</div><div class="k">pointless retries avoided</div></div>
+          <div class="tile"><div class="v" id="tCache">0</div><div class="k">model calls saved by cache (all apps)</div></div>
+        </div>
+        <div class="cats" id="tCats"></div>
+        <div class="hint" style="margin-top:10px">
+          Every failed attempt is diagnosed. A permanent failure (bad auth, invalid request) stops at once,
+          instead of being retried 8 times over an hour. A rate limit waits as long as the receiver asks.
+          Anything uncertain falls back to normal retries.
+        </div>
+      </section>
+
+      <div class="grid2" style="margin-top:18px">
+        <!-- deliveries -->
+        <section class="panel">
+          <h2>Deliveries <span class="count" id="dlvCount"></span>
+            <span style="margin-left:auto" class="row">
+              <select id="stateFilter" aria-label="Filter by state">
+                <option value="">All states</option>
+                <option>PENDING</option><option>SUCCEEDED</option><option>FAILED</option><option>DISABLED</option>
+              </select>
+              <span class="live on" id="live" role="switch" aria-checked="true" tabindex="0"><span class="dot"></span>Live</span>
+            </span>
+          </h2>
+          <div class="tbl">
+            <table>
+              <thead><tr><th>ID</th><th>Endpoint</th><th>State</th><th class="num">Tries</th><th>Next attempt</th><th>Diagnosis</th><th></th></tr></thead>
+              <tbody id="dlvs"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- attempts -->
+        <section class="panel">
+          <h2>Attempt history <span class="count" id="attTitle"></span></h2>
+          <div id="atts"><div class="empty">Click a delivery to see every attempt.</div></div>
+        </section>
+      </div>
+    </div>
+  </main>
+</div>
+<div id="toast" aria-live="polite"></div>
+
+<script>
+const API = '/api/v1/applications';
+const state = { apps: [], app: null, endpoints: [], selected: null, live: true, timer: null };
+const $ = id => document.getElementById(id);
+
+// ---------- http ----------
+async function api(path, opts = {}) {
+  const res = await fetch(path, {
+    ...opts,
+    headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
+  });
+  const text = await res.text();
+  const body = text ? JSON.parse(text) : null;
+  if (!res.ok) {
+    const fields = body?.fieldErrors && Object.entries(body.fieldErrors).map(([k, v]) => `${k}: ${v}`).join('; ');
+    const err = new Error(fields || body?.message || res.statusText);
+    err.status = res.status;
+    throw err;
+  }
+  return { status: res.status, body };
+}
+
+function toast(msg, isErr) {
+  const el = document.createElement('div');
+  el.className = 'toast' + (isErr ? ' err' : '');
+  el.innerHTML = msg;
+  $('toast').appendChild(el);
+  setTimeout(() => el.remove(), isErr ? 7000 : 4000);
+}
+const fail = e => toast(`<b>${e.status || ''} error</b><br>${esc(e.message)}`, true);
+
+// ---------- formatting ----------
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const time = iso => iso ? new Date(iso).toLocaleTimeString([], { hour12: false }) + '.' + String(new Date(iso).getMilliseconds()).padStart(3, '0') : '';
+function relative(iso) {
+  const ms = new Date(iso) - Date.now();
+  const s = Math.round(Math.abs(ms) / 1000);
+  const txt = s < 60 ? `${s}s` : s < 3600 ? `${Math.round(s / 60)}m` : `${Math.round(s / 3600)}h`;
+  return ms > 0 ? `in ${txt}` : `${txt} ago`;
+}
+const epName = id => {
+  const ep = state.endpoints.find(e => e.id === id);
+  return ep ? (ep.description || ep.url) : id.slice(0, 8);
+};
+
+// ---------- applications ----------
+async function loadApps() {
+  const { body } = await api(`${API}?size=200`);
+  state.apps = Array.isArray(body) ? body : (body?.content || []);
+  renderApps();
+}
+function renderApps() {
+  $('apps').innerHTML = state.apps.map(a =>
+    `<button data-id="${a.id}" aria-current="${state.app?.id === a.id}">
+       ${esc(a.name)}<small>${a.id.slice(0, 8)}…</small></button>`).join('')
+    || '<div class="hint">No applications yet.</div>';
+}
+$('apps').onclick = e => {
+  const b = e.target.closest('button');
+  if (b) selectApp(state.apps.find(a => a.id === b.dataset.id));
+};
+$('appForm').onsubmit = async e => {
+  e.preventDefault();
+  try {
+    const { body } = await api(API, { method: 'POST', body: JSON.stringify({ name: $('appName').value }) });
+    $('appName').value = '';
+    await loadApps();
+    selectApp(state.apps.find(a => a.id === body.id) || body);
+  } catch (err) { fail(err); }
+};
+
+function selectApp(app) {
+  state.app = app;
+  state.selected = null;
+  try { localStorage.setItem('relay.app', app.id); } catch {}
+  $('noApp').hidden = true;
+  $('workspace').hidden = false;
+  $('appTitle').textContent = app.name;
+  $('appId').textContent = app.id;
+  $('atts').innerHTML = '<div class="empty">Click a delivery to see every attempt.</div>';
+  $('attTitle').textContent = '';
+  renderApps();
+  refresh();
+}
+
+// ---------- endpoints ----------
+async function loadEndpoints() {
+  const { body } = await api(`${API}/${state.app.id}/endpoints`);
+  state.endpoints = Array.isArray(body) ? body : (body?.content || []);
+  $('epCount').textContent = state.endpoints.length;
+  $('eps').innerHTML = state.endpoints.map(ep => `
+    <div class="ep ${ep.enabled ? '' : 'disabled'}">
+      <div>
+        <div><b>${esc(ep.description || '(no description)')}</b></div>
+        <div class="url">${esc(ep.url)}</div>
+      </div>
+      <div class="actions">
+        ${ep.enabled
+          ? '<span class="pill s-SUCCEEDED">breaker closed</span>'
+          : `<button class="btn small" data-enable="${ep.id}">Enable</button>`}
+        <button class="btn small" data-replay-ep="${ep.id}" title="Re-queue every FAILED/DISABLED delivery for this endpoint">Replay failed</button>
+      </div>
+      <div class="meta">
+        <span>events: ${ep.eventTypes?.length ? ep.eventTypes.map(esc).join(', ') : 'all'}</span>
+        ${ep.enabled ? '' : `<span class="pill s-DISABLED">breaker open</span><span>${esc(ep.disabledReason)}</span>`}
+      </div>
+    </div>`).join('') || '<div class="empty">No endpoints. Use a quick-fill button above.</div>';
+}
+$('eps').onclick = async e => {
+  const en = e.target.dataset.enable, rp = e.target.dataset.replayEp;
+  try {
+    if (en) {
+      await api(`${API}/${state.app.id}/endpoints/${en}/enable`, { method: 'POST' });
+      toast('Endpoint enabled, breaker reset.');
+    } else if (rp) {
+      const { body } = await api(`${API}/${state.app.id}/endpoints/${rp}/deliveries/replay`, { method: 'POST' });
+      toast(`Re-queued <b>${body?.replayed ?? body?.count ?? JSON.stringify(body)}</b> deliveries.`);
+    } else return;
+    refresh();
+  } catch (err) { fail(err); }
+};
+document.querySelectorAll('[data-fill]').forEach(b => b.onclick = () => {
+  const [url, desc] = b.dataset.fill.split('|');
+  $('epUrl').value = url; $('epDesc').value = desc;
+  if (!$('epTypes').value) $('epTypes').value = 'order.created';
+});
+$('epForm').onsubmit = async e => {
+  e.preventDefault();
+  const types = $('epTypes').value.split(',').map(s => s.trim()).filter(Boolean);
+  try {
+    const { body } = await api(`${API}/${state.app.id}/endpoints`, {
+      method: 'POST',
+      body: JSON.stringify({ url: $('epUrl').value, description: $('epDesc').value || null, eventTypes: types }),
+    });
+    toast(`Endpoint created. Signing secret (shown once):<br><code>${esc(body.secret)}</code>`);
+    $('epUrl').value = $('epDesc').value = '';
+    loadEndpoints();
+  } catch (err) { fail(err); }
+};
+
+// ---------- messages ----------
+$('msgForm').onsubmit = async e => {
+  e.preventDefault();
+  let payload;
+  try { payload = JSON.parse($('msgPayload').value); }
+  catch { return toast('Payload is not valid JSON.', true); }
+  const key = $('msgKey').value.trim();
+  const times = Math.max(1, Math.min(50, +$('msgTimes').value || 1));
+  const results = [];
+  try {
+    for (let i = 0; i < times; i++) {
+      const { status, body } = await api(`${API}/${state.app.id}/messages`, {
+        method: 'POST',
+        headers: key ? { 'Idempotency-Key': key } : {},
+        body: JSON.stringify({ eventType: $('msgType').value, payload }),
+      });
+      results.push({ status, body });
+    }
+    const ids = new Set(results.map(r => r.body.id));
+    const last = results.at(-1).body;
+    $('msgResult').innerHTML =
+      `<b>${results.at(-1).status} Accepted</b> · message <code>${last.id.slice(0, 8)}…</code> · ` +
+      `${last.deliveriesCreated} deliveries created` +
+      (times > 1 ? ` · ${times} requests → <b>${ids.size}</b> distinct message${ids.size > 1 ? 's' : ''}` +
+        (key && ids.size === 1 ? ' (idempotency key deduplicated them)' : '') : '');
+    refresh();
+  } catch (err) { fail(err); }
+};
+
+// ---------- deliveries ----------
+async function loadDeliveries() {
+  const st = $('stateFilter').value;
+  const { body } = await api(`${API}/${state.app.id}/deliveries?size=50${st ? '&state=' + st : ''}`);
+  const rows = body?.content || [];
+  $('dlvCount').textContent = `${rows.length}${body?.totalElements > rows.length ? ' of ' + body.totalElements : ''}`;
+  $('dlvs').innerHTML = rows.map(d => `
+    <tr data-id="${d.id}" aria-selected="${state.selected === d.id}">
+      <td class="mono">${d.id}</td>
+      <td>${esc(epName(d.endpointId))}</td>
+      <td><span class="pill s-${d.state}">${d.state}</span></td>
+      <td class="num">${d.attemptCount}</td>
+      <td class="mono">${d.state === 'PENDING' ? relative(d.nextAttemptAt) : '—'}</td>
+      <td>${diagnosisCell(d)}</td>
+      <td>${d.state === 'FAILED' || d.state === 'DISABLED'
+          ? `<button class="btn small" data-replay="${d.id}">Replay</button>` : ''}</td>
+    </tr>`).join('') || '<tr><td colspan="7" class="empty">No deliveries yet. Send an event.</td></tr>';
+}
+$('stateFilter').onchange = () => loadDeliveries().catch(fail);
+$('dlvs').onclick = async e => {
+  const rp = e.target.dataset.replay;
+  if (rp) {
+    e.stopPropagation();
+    try {
+      await api(`${API}/${state.app.id}/deliveries/${rp}/replay`, { method: 'POST' });
+      toast(`Delivery ${rp} re-queued.`);
+      state.selected = +rp;
+      refresh();
+    } catch (err) { fail(err); }
+    return;
+  }
+  const tr = e.target.closest('tr[data-id]');
+  if (tr) { state.selected = +tr.dataset.id; loadDeliveries().catch(() => {}); loadAttempts().catch(fail); }
+};
+
+// ---------- attempts ----------
+const WHY = {
+  AUTH: 'Receiver rejected our credentials. Retrying fails the same way, so Relay gave up early.',
+  CLIENT_ERROR: 'Our request was rejected as invalid. Time will not fix it; no more retries.',
+  RATE_LIMITED: 'Receiver is throttling us. Retry on their schedule.',
+  SERVER_ERROR: 'Receiver is broken, probably temporarily. Retry with jittered backoff.',
+  NETWORK: 'No response at all (timeout, DNS, TLS). Retry with jittered backoff.',
+  UNKNOWN: 'No confident classification. Normal retry policy applies.',
+};
+async function loadAttempts() {
+  if (!state.selected) return;
+  const { body } = await api(`${API}/${state.app.id}/deliveries/${state.selected}/attempts?size=100`);
+  const list = (body?.content || []).slice().sort((a, b) => a.id - b.id);
+  $('attTitle').textContent = `delivery ${state.selected} · ${list.length} attempt${list.length === 1 ? '' : 's'}`;
+  if (!list.length) { $('atts').innerHTML = '<div class="empty">No attempts yet. It is queued.</div>'; return; }
+  $('atts').innerHTML = '<div class="timeline">' + list.map((a, i) => {
+    const ok = a.httpStatus >= 200 && a.httpStatus < 300;
+    const node = ok ? 'n-ok' : a.failureCategory && ['AUTH', 'CLIENT_ERROR'].includes(a.failureCategory) ? 'n-bad' : 'n-warn';
+    const prev = list[i - 1];
+    const gap = prev && prev.replayCount === a.replayCount
+      ? `<div class="gap">↓ waited ${((new Date(a.attemptedAt) - new Date(prev.attemptedAt)) / 1000).toFixed(1)}s (jittered backoff)</div>` : '';
+    const replay = prev && prev.replayCount !== a.replayCount ? `<div class="gap">↻ replay #${a.replayCount}</div>` : '';
+    return `${gap}${replay}
+      <div class="att">
+        <div class="rail"><div class="node ${node}"></div>${i < list.length - 1 ? '<div class="line"></div>' : ''}</div>
+        <div class="body">
+          <div class="top">
+            <b>Attempt ${a.attemptNumber}</b>${a.replayCount ? `<span class="hint">replay ${a.replayCount}</span>` : ''}
+            <span class="pill ${ok ? 's-SUCCEEDED' : 's-FAILED'}">${a.httpStatus ?? 'no response'}</span>
+            ${a.failureCategory ? `<span class="pill s-DISABLED">${a.failureCategory}</span>` : ''}
+            <span class="hint mono">${time(a.attemptedAt)} · ${a.durationMs} ms</span>
+          </div>
+          ${a.failureCategory ? `<div class="why">${esc(a.failureReasoning || '')}${a.failureReasoning ? ' · ' : ''}${WHY[a.failureCategory] || ''}</div>` : ''}
+          ${a.errorMessage ? `<div class="why">${esc(a.errorMessage)}</div>` : ''}
+          ${a.responseBody ? `<details><summary class="hint">response body</summary><pre>${esc(a.responseBody)}</pre></details>` : ''}
+        </div>
+      </div>`;
+  }).join('') + '</div>';
+}
+
+// ---------- failure triage ----------
+const PERMANENT = ['AUTH', 'CLIENT_ERROR'];
+function diagnosisCell(d) {
+  if (!d.diagnosis && !d.lastError) return '';
+  const cls = PERMANENT.includes(d.diagnosis) ? 'c-perm' : 'c-temp';
+  return `<div class="diag">
+      <div>${d.diagnosis ? `<span class="pill ${cls}">${d.diagnosis}</span>` : ''}
+        ${d.retriesSaved ? `<span class="pill saved" title="attempts not made because this failure is permanent">${d.retriesSaved} retries saved</span>` : ''}</div>
+      ${d.diagnosisWhy ? `<div class="r">${esc(d.diagnosisWhy)}</div>` : ''}
+      ${d.lastError && d.lastError !== d.diagnosisWhy ? `<div class="e">${esc(d.lastError)}</div>` : ''}
+    </div>`;
+}
+async function loadTriage() {
+  const { body: t } = await api(`${API}/${state.app.id}/insights/triage`);
+  const total = Object.values(t.failuresByCategory).reduce((a, b) => a + b, 0);
+  $('triageProvider').textContent = t.provider === 'none' ? 'status-code heuristic only' : `AI: ${t.provider} + heuristic`;
+  $('tDiagnosed').textContent = total;
+  $('tStopped').textContent = t.deliveriesStoppedEarly;
+  $('tSaved').textContent = t.retriesSaved;
+  $('tCache').textContent = t.cacheHits;
+  const max = Math.max(1, ...Object.values(t.failuresByCategory));
+  $('tCats').innerHTML = Object.entries(t.failuresByCategory).map(([c, n]) => `
+    <div class="cat">
+      <span class="pill ${PERMANENT.includes(c) ? 'c-perm' : 'c-temp'}" title="${esc(WHY[c] || '')}">${c}</span>
+      <div class="track"><div class="fill ${PERMANENT.includes(c) ? 'perm' : ''}" style="width:${(n / max * 100).toFixed(1)}%"></div></div>
+      <span class="n">${n}</span>
+    </div>`).join('') || '<div class="hint">No failures yet. Add a "401 bad auth" or "500 broken" endpoint and send an event.</div>';
+}
+
+// ---------- refresh loop ----------
+async function refresh() {
+  if (!state.app) return;
+  try {
+    await loadEndpoints();
+    await loadDeliveries();
+    await loadTriage();
+    if (state.selected) await loadAttempts();
+  } catch (err) { fail(err); }
+}
+function setLive(on) {
+  state.live = on;
+  $('live').classList.toggle('on', on);
+  $('live').setAttribute('aria-checked', on);
+  clearInterval(state.timer);
+  if (on) state.timer = setInterval(() => { if (!document.hidden) refresh(); }, 2000);
+}
+$('live').onclick = () => setLive(!state.live);
+$('live').onkeydown = e => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); setLive(!state.live); } };
+
+// ---------- AI badge ----------
+async function loadAiBadge() {
+  try {
+    const { body } = await api('/actuator/info');
+    const ai = body?.relay || {};
+    const p = String(ai['ai-provider'] || 'none').toLowerCase();
+    const model = p === 'ollama' ? ai['ollama-model'] : p === 'claude' ? ai['claude-model'] : null;
+    $('aiBadge').innerHTML = p === 'none'
+      ? '<span class="pill s-off">AI triage off</span> status-code heuristic only'
+      : `<span class="pill s-SUCCEEDED">AI triage on</span> ${esc(p)} · <span class="mono">${esc(model)}</span>`;
+  } catch { $('aiBadge').textContent = ''; }
+}
+
+// ---------- boot ----------
+(async () => {
+  loadAiBadge();
+  try {
+    await loadApps();
+    // #<appId>[/<deliveryId>] in the URL wins, so a link can open a specific
+    // application, and optionally a delivery's attempt history.
+    const [hashApp, hashDelivery] = location.hash.slice(1).split('/');
+    let last = hashApp || null;
+    if (!last) { try { last = localStorage.getItem('relay.app'); } catch {} }
+    const app = state.apps.find(a => a.id === last) || null;
+    if (app) {
+      selectApp(app);
+      if (hashDelivery) { state.selected = +hashDelivery; loadAttempts().catch(fail); }
+    }
+  } catch (err) { fail(err); }
+  setLive(true);
+})();
+</script>
+</body>
+</html>

@@ -66,6 +66,16 @@ Full diagrams (system, dispatch sequence, state machine and ER) are in
 
 All 12 decisions, with their trade-offs: **[docs/adr/](docs/adr/README.md)**.
 
+## Tech stack
+
+| | |
+|---|---|
+| **Language / framework** | Java 21 · Spring Boot 3.5 (Web, Data JPA, Validation, Actuator, Scheduling) |
+| **Database** | PostgreSQL 16 · Flyway migrations · Hibernate in `validate` mode only |
+| **AI** | Ollama (`llama3.2`) for local dev · Claude via `anthropic-java` with structured outputs |
+| **Testing** | JUnit 5 · Testcontainers (real Postgres, never H2) · k6 load tests |
+| **Tooling** | Maven · Docker Compose · GitHub Actions · springdoc-openapi |
+
 ## Run it
 
 ```bash
@@ -139,3 +149,46 @@ Everything tunable lives under `relay.*` in `application.yml`, bound to `RelayPr
 - `rate-limit`: per-endpoint rate and burst
 - `breaker`: failure threshold
 - `ai`: `none` | `ollama` | `claude`; off by default
+
+## Project layout
+
+```
+src/main/java/com/dileep/relay
+├── api/          REST controllers, DTOs (records), global error handling
+├── service/      business logic: ingest (outbox), endpoints, deliveries, SSRF guard
+├── dispatch/     worker loop, HTTP sender, HMAC signer
+├── retry/        full-jitter backoff policy
+├── ratelimit/    per-endpoint token bucket
+├── ai/           failure classifiers: heuristic, caching, hybrid, Ollama, Claude
+├── domain/       JPA entities and the delivery state machine
+├── repository/   Spring Data repositories, including the SKIP LOCKED claim query
+└── config/       typed `relay.*` properties
+src/main/resources/db/migration   Flyway migrations V1–V6
+docs/             architecture, ADRs, benchmarks, webhook verification guide
+loadtest/         k6 scripts
+demo/             seeded demo scenario
+```
+
+**Layer rule:** `api → service → repository`. Entities never leave the service layer; only
+DTOs cross the API boundary.
+
+## Roadmap
+
+- [x] Ingest with transactional outbox and idempotency keys
+- [x] Async dispatcher with leases, full-jitter retries, circuit breaker
+- [x] HMAC signatures (Standard Webhooks), SSRF guard
+- [x] Dead-letter queue, replay, per-endpoint rate limiting
+- [x] LLM failure triage
+- [x] Load tests, benchmarks, ADRs
+- [ ] Kafka as an optional transport
+- [ ] Extract insights and dispatch into separate services, when measurement justifies it
+- [ ] Kubernetes deployment
+
+## License
+
+[MIT](LICENSE)
+
+## Author
+
+**Dileep Kumar Seerapu** · [GitHub](https://github.com/jaidevdileep24) ·
+[LinkedIn](https://www.linkedin.com/in/dileep-kumar-seerapu-a34a89258)

@@ -1,5 +1,8 @@
 # Relay
 
+[![CI](https://github.com/jaidevdileep24/relay/actions/workflows/ci.yml/badge.svg)](https://github.com/jaidevdileep24/relay/actions/workflows/ci.yml)
+![Java 21](https://img.shields.io/badge/Java-21-orange) ![Spring Boot 3.5](https://img.shields.io/badge/Spring%20Boot-3.5-6DB33F) ![PostgreSQL 16](https://img.shields.io/badge/PostgreSQL-16-336791)
+
 **A webhook delivery service.** Relay accepts events from your app and guarantees they
 reach your customers' HTTPS endpoints, with signed requests, jittered retries, a circuit
 breaker, a dead-letter queue with replay, and a full attempt-by-attempt audit trail. It is
